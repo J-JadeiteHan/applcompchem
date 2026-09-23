@@ -1,0 +1,155 @@
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.13.15 | packaged by conda-forge | (main, Aug 10 2026, 13:05:01) [GCC 14.4.0]
+numpy 2.5.2  scipy 1.18.0  h5py 3.16.0
+Date: Wed Sep 23 16:29:06 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/pyscf/lib/python3.13/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.380040653094 AA    0.000000000000   0.000000000000  -0.718172750548 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.380040653094 AA    0.000000000000   0.000000000000   0.718172750548 Bohr   0.0
+
+nuclear repulsion = 0.696211321883794
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.15
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp90xipig0
+max_memory 4000 MB (current use 115 MB)
+XC library pyscf.dft.libxc version 7.1.2
+    S. Lehtola, C. Steigemann, M. J. T. Oliveira, and M. A. L. Marques,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+/appl/share/pyscf/bin/../lib/libxc.so.15(+0x42d88f1)[0x7fc925b5c8f1]
+/appl/share/pyscf/bin/../lib/libxc.so.15(xc_func_init_flags+0x44)[0x7fc92194a414]
+/appl/share/pyscf/lib/python3.13/site-packages/pyscf/lib/libxc_itrf.so(LIBXC_xc_func_init+0x63)[0x7fc94ea88513]
+/appl/share/pyscf/lib/python3.13/lib-dynload/../../libffi.so.8(+0x8d6a)[0x7fc954f6ad6a]
+/appl/share/pyscf/lib/python3.13/lib-dynload/../../libffi.so.8(+0x785f)[0x7fc954f6985f]
+/appl/share/pyscf/lib/python3.13/lib-dynload/../../libffi.so.8(ffi_call+0x101)[0x7fc954f6a4e1]
+/appl/share/pyscf/lib/python3.13/lib-dynload/_ctypes.cpython-313-x86_64-linux-gnu.so(+0x15f10)[0x7fc954f85f10]
+/appl/share/pyscf/lib/python3.13/lib-dynload/_ctypes.cpython-313-x86_64-linux-gnu.so(+0x13de6)[0x7fc954f83de6]
+python(_PyObject_MakeTpCall+0x27c)[0x55e474fb767c]
+python(_PyEval_EvalFrameDefault+0x3722)[0x55e474fca2d2]
+python(+0x1ef84f)[0x55e474ff984f]
+python(_PyObject_MakeTpCall+0x1c7)[0x55e474fb75c7]
+python(_PyEval_EvalFrameDefault+0x3722)[0x55e474fca2d2]
+python(+0x2d15eb)[0x55e4750db5eb]
+python(_PyObject_MakeTpCall+0x27c)[0x55e474fb767c]
+python(_PyEval_EvalFrameDefault+0x3722)[0x55e474fca2d2]
+python(+0x2114fa)[0x55e47501b4fa]
+python(_PyEval_EvalFrameDefault+0x3f23)[0x55e474fcaad3]
+python(PyEval_EvalCode+0x9f)[0x55e47508b5ff]
+python(+0x2c0ee3)[0x55e4750caee3]
+python(+0x2bde8e)[0x55e4750c7e8e]
+python(+0x2baacd)[0x55e4750c4acd]
+python(+0x2ba739)[0x55e4750c4739]
+python(+0x2ba4fc)[0x55e4750c44fc]
+python(Py_RunMain+0x395)[0x55e4750c2e35]
+python(Py_BytesMain+0x37)[0x55e475077307]
+/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0xf3)[0x7fc96108b083]
+python(+0x26c68f)[0x55e47507668f]

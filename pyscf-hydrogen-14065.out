@@ -1,0 +1,1827 @@
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:31 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.380040653094 AA    0.000000000000   0.000000000000  -0.718172750548 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.380040653094 AA    0.000000000000   0.000000000000   0.718172750548 Bohr   0.0
+
+nuclear repulsion = 0.696211321883794
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         0.94
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp3mp3besl
+max_memory 4000 MB (current use 108 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947125722707141
+  HOMO = -0.453218721149284  LUMO = 0.0678755819049117  gap/eV = 14.17970
+cycle= 1 E= -1.17506539429249  delta_E= -0.228  |g|= 0.0229  |ddm|= 0.626
+  HOMO = -0.42553357089282  LUMO = 0.0976766879778542  gap/eV = 14.23728
+cycle= 2 E= -1.1752824167815  delta_E= -0.000217  |g|= 0.00358  |ddm|= 0.0285
+  HOMO = -0.430527869607467  LUMO = 0.0950614525430262  gap/eV = 14.30201
+cycle= 3 E= -1.1752878435319  delta_E= -5.43e-06  |g|= 7.86e-07  |ddm|= 0.00384
+  HOMO = -0.430528162603593  LUMO = 0.0950616838953138  gap/eV = 14.30203
+cycle= 4 E= -1.17528784353208  delta_E= -1.78e-13  |g|= 4.45e-07  |ddm|= 3.66e-07
+  HOMO = -0.430528642313435  LUMO = 0.095061934933768  gap/eV = 14.30205
+Extra cycle  E= -1.17528784353216  delta_E= -8.22e-14  |g|= 6.94e-08  |ddm|= 5.53e-07
+converged SCF energy = -1.17528784353216
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:31 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.444959346906 AA    0.000000000000   0.000000000000  -0.840851302218 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.444959346906 AA    0.000000000000   0.000000000000   0.840851302218 Bohr   0.0
+
+nuclear repulsion = 0.59463545894624
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.07
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpzga2w007
+max_memory 4000 MB (current use 115 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.937306814802406
+  HOMO = -0.409800640178808  LUMO = 0.0358359226526117  gap/eV = 12.12639
+cycle= 1 E= -1.16459764347862  delta_E= -0.227  |g|= 0.00819  |ddm|= 0.613
+  HOMO = -0.405334532776788  LUMO = 0.0581249801940988  gap/eV = 12.61138
+cycle= 2 E= -1.1646255913072  delta_E= -2.79e-05  |g|= 0.00101  |ddm|= 0.0104
+  HOMO = -0.406936330835528  LUMO = 0.0571425063448796  gap/eV = 12.62823
+cycle= 3 E= -1.16462602605281  delta_E= -4.35e-07  |g|= 1.34e-07  |ddm|= 0.00114
+  HOMO = -0.406936369881488  LUMO = 0.057142520714952  gap/eV = 12.62823
+cycle= 4 E= -1.16462602605281  delta_E= -5.33e-15  |g|= 7.43e-08  |ddm|= 6.73e-08
+  HOMO = -0.406936432986813  LUMO = 0.0571425296724779  gap/eV = 12.62823
+Extra cycle  E= -1.16462602605282  delta_E= -2.66e-15  |g|= 9.19e-09  |ddm|= 9.41e-08
+converged SCF energy = -1.16462602605282
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:31 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.339918693812 AA    0.000000000000   0.000000000000  -0.642353235925 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.339918693812 AA    0.000000000000   0.000000000000   0.642353235925 Bohr   0.0
+
+nuclear repulsion = 0.778387921218574
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.19
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpq52dqc4p
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.945898660904877
+  HOMO = -0.485504962295849  LUMO = 0.0871787084141333  gap/eV = 15.58352
+cycle= 1 E= -1.17188376597977  delta_E= -0.226  |g|= 0.0349  |ddm|= 0.642
+  HOMO = -0.438985261026771  LUMO = 0.1219616611034  gap/eV = 15.26414
+cycle= 2 E= -1.17238671044308  delta_E= -0.000503  |g|= 0.00612  |ddm|= 0.043
+  HOMO = -0.447095603413249  LUMO = 0.118150494887945  gap/eV = 15.38113
+cycle= 3 E= -1.17240262574357  delta_E= -1.59e-05  |g|= 1.22e-06  |ddm|= 0.00637
+  HOMO = -0.447096215217515  LUMO = 0.118151193098174  gap/eV = 15.38117
+cycle= 4 E= -1.172402625744  delta_E= -4.28e-13  |g|= 7.01e-07  |ddm|= 5.45e-07
+  HOMO = -0.447097198475306  LUMO = 0.118152052420227  gap/eV = 15.38122
+Extra cycle  E= -1.1724026257442  delta_E= -2.02e-13  |g|= 1.23e-07  |ddm|= 8.59e-07
+converged SCF energy = -1.1724026257442
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:31 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.375973261185 AA    0.000000000000   0.000000000000  -0.710486493799 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.375973261185 AA    0.000000000000   0.000000000000   0.710486493799 Bohr   0.0
+
+nuclear repulsion = 0.703743145526244
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.31
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpko5pm37o
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947360389384067
+  HOMO = -0.456284675507878  LUMO = 0.0698630061341828  gap/eV = 14.31721
+cycle= 1 E= -1.17518217863933  delta_E= -0.228  |g|= 0.024  |ddm|= 0.627
+  HOMO = -0.426859604000851  LUMO = 0.100159364857192  gap/eV = 14.34092
+cycle= 2 E= -1.17542076226647  delta_E= -0.000239  |g|= 0.0038  |ddm|= 0.0299
+  HOMO = -0.432131617928436  LUMO = 0.0974280060224253  gap/eV = 14.41005
+cycle= 3 E= -1.1754268852749  delta_E= -6.12e-06  |g|= 8.39e-07  |ddm|= 0.00407
+  HOMO = -0.432131937805275  LUMO = 0.0974282684954864  gap/eV = 14.41007
+cycle= 4 E= -1.1754268852751  delta_E= -2.02e-13  |g|= 4.76e-07  |ddm|= 3.89e-07
+  HOMO = -0.432132461210755  LUMO = 0.0974285578316212  gap/eV = 14.41009
+Extra cycle  E= -1.17542688527519  delta_E= -9.48e-14  |g|= 7.51e-08  |ddm|= 5.9e-07
+converged SCF energy = -1.17542688527519
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:31 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.372198487076 AA    0.000000000000   0.000000000000  -0.703353204552 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.372198487076 AA    0.000000000000   0.000000000000   0.703353204552 Bohr   0.0
+
+nuclear repulsion = 0.710880389488849
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.43
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp69n6094b
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947518110741592
+  HOMO = -0.459170131657457  LUMO = 0.0717025627358576  gap/eV = 14.44578
+cycle= 1 E= -1.17521390280226  delta_E= -0.228  |g|= 0.025  |ddm|= 0.628
+  HOMO = -0.428097325564294  LUMO = 0.102460701942908  gap/eV = 14.43722
+cycle= 2 E= -1.17547383873028  delta_E= -0.00026  |g|= 0.00401  |ddm|= 0.0312
+  HOMO = -0.433634598351534  LUMO = 0.099620379230253  gap/eV = 14.51061
+cycle= 3 E= -1.17548066975077  delta_E= -6.83e-06  |g|= 8.89e-07  |ddm|= 0.00428
+  HOMO = -0.433634944398385  LUMO = 0.0996206733616076  gap/eV = 14.51062
+cycle= 4 E= -1.175480669751  delta_E= -2.27e-13  |g|= 5.04e-07  |ddm|= 4.1e-07
+  HOMO = -0.433635510189604  LUMO = 0.0996210021265509  gap/eV = 14.51065
+Extra cycle  E= -1.17548066975111  delta_E= -1.06e-13  |g|= 8.06e-08  |ddm|= 6.25e-07
+converged SCF energy = -1.17548066975111
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:31 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371283463311 AA    0.000000000000   0.000000000000  -0.701624060237 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371283463311 AA    0.000000000000   0.000000000000   0.701624060237 Bohr   0.0
+
+nuclear repulsion = 0.712632345918802
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.55
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpfvlu8wxd
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947547198479872
+  HOMO = -0.459875456224437  LUMO = 0.0721477215849711  gap/eV = 14.47709
+cycle= 1 E= -1.17521005326894  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428398400013692  LUMO = 0.103018103956306  gap/eV = 14.46058
+cycle= 2 E= -1.17547536573065  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0315
+  HOMO = -0.43400107221518  LUMO = 0.100151200568165  gap/eV = 14.53502
+cycle= 3 E= -1.1754823777961  delta_E= -7.01e-06  |g|= 9e-07  |ddm|= 0.00434
+  HOMO = -0.434001424780737  LUMO = 0.10015150279489  gap/eV = 14.53504
+cycle= 4 E= -1.17548237779634  delta_E= -2.34e-13  |g|= 5.11e-07  |ddm|= 4.16e-07
+  HOMO = -0.434002001104121  LUMO = 0.100151841711686  gap/eV = 14.53507
+Extra cycle  E= -1.17548237779644  delta_E= -1.08e-13  |g|= 8.19e-08  |ddm|= 6.33e-07
+converged SCF energy = -1.17548237779644
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:32 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371387458534 AA    0.000000000000   0.000000000000  -0.701820582727 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371387458534 AA    0.000000000000   0.000000000000   0.701820582727 Bohr   0.0
+
+nuclear repulsion = 0.712432795938934
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.66
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpq94thtu9
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947544076941911
+  HOMO = -0.459795177774058  LUMO = 0.0720971433622674  gap/eV = 14.47353
+cycle= 1 E= -1.1752107220993  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428364161271533  LUMO = 0.102954763033214  gap/eV = 14.45792
+cycle= 2 E= -1.17547541949573  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0314
+  HOMO = -0.433959378937568  LUMO = 0.10009088384547  gap/eV = 14.53225
+cycle= 3 E= -1.17548241079498  delta_E= -6.99e-06  |g|= 8.99e-07  |ddm|= 0.00433
+  HOMO = -0.433959730758846  LUMO = 0.100091185143657  gap/eV = 14.53227
+cycle= 4 E= -1.17548241079521  delta_E= -2.32e-13  |g|= 5.11e-07  |ddm|= 4.15e-07
+  HOMO = -0.433960305880251  LUMO = 0.100091522894665  gap/eV = 14.53229
+Extra cycle  E= -1.17548241079532  delta_E= -1.08e-13  |g|= 8.17e-08  |ddm|= 6.32e-07
+converged SCF energy = -1.17548241079532
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:32 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371394378301 AA    0.000000000000   0.000000000000  -0.701833659191 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371394378301 AA    0.000000000000   0.000000000000   0.701833659191 Bohr   0.0
+
+nuclear repulsion = 0.712419521993384
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.78
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpksmoov8i
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947543867551782
+  HOMO = -0.459789837162482  LUMO = 0.0720937777827843  gap/eV = 14.47329
+cycle= 1 E= -1.17521076449052  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428361883239303  LUMO = 0.102950548286694  gap/eV = 14.45775
+cycle= 2 E= -1.17547542099751  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0314
+  HOMO = -0.433956605083501  LUMO = 0.100086870297796  gap/eV = 14.53206
+cycle= 3 E= -1.17548241091673  delta_E= -6.99e-06  |g|= 8.99e-07  |ddm|= 0.00433
+  HOMO = -0.433956956855287  LUMO = 0.100087171534276  gap/eV = 14.53208
+cycle= 4 E= -1.17548241091696  delta_E= -2.32e-13  |g|= 5.1e-07  |ddm|= 4.15e-07
+  HOMO = -0.433957531896758  LUMO = 0.100087509207822  gap/eV = 14.53211
+Extra cycle  E= -1.17548241091707  delta_E= -1.08e-13  |g|= 8.17e-08  |ddm|= 6.32e-07
+converged SCF energy = -1.17548241091707
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:32 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371394173849 AA    0.000000000000   0.000000000000  -0.701833272835 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371394173849 AA    0.000000000000   0.000000000000   0.701833272835 Bohr   0.0
+
+nuclear repulsion = 0.71241991417793
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         1.90
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpy3h7k3fk
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.94754387374143
+  HOMO = -0.459789994954155  LUMO = 0.0720938772223567  gap/eV = 14.47330
+cycle= 1 E= -1.17521076324181  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428361950545644  LUMO = 0.102950672815637  gap/eV = 14.45775
+cycle= 2 E= -1.17547542095685  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0314
+  HOMO = -0.433956687039027  LUMO = 0.100086988882176  gap/eV = 14.53207
+cycle= 3 E= -1.17548241091684  delta_E= -6.99e-06  |g|= 8.99e-07  |ddm|= 0.00433
+  HOMO = -0.433957038812275  LUMO = 0.10008729012048  gap/eV = 14.53209
+cycle= 4 E= -1.17548241091707  delta_E= -2.32e-13  |g|= 5.1e-07  |ddm|= 4.15e-07
+  HOMO = -0.433957613856108  LUMO = 0.100087627796314  gap/eV = 14.53211
+Extra cycle  E= -1.17548241091718  delta_E= -1.08e-13  |g|= 8.17e-08  |ddm|= 6.32e-07
+converged SCF energy = -1.17548241091718
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:32 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371394196025 AA    0.000000000000   0.000000000000  -0.701833314740 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371394196025 AA    0.000000000000   0.000000000000   0.701833314740 Bohr   0.0
+
+nuclear repulsion = 0.712419871640517
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         2.02
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpyek3gg9s
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947543873070091
+  HOMO = -0.459789977839639  LUMO = 0.0720938664368737  gap/eV = 14.47330
+cycle= 1 E= -1.17521076337726  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428361943245416  LUMO = 0.102950659308893  gap/eV = 14.45775
+cycle= 2 E= -1.17547542096127  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0314
+  HOMO = -0.433956678149908  LUMO = 0.100086976020196  gap/eV = 14.53207
+cycle= 3 E= -1.17548241091684  delta_E= -6.99e-06  |g|= 8.99e-07  |ddm|= 0.00433
+  HOMO = -0.433957029922997  LUMO = 0.100087277258302  gap/eV = 14.53209
+cycle= 4 E= -1.17548241091707  delta_E= -2.32e-13  |g|= 5.1e-07  |ddm|= 4.15e-07
+  HOMO = -0.433957604966575  LUMO = 0.100087614933888  gap/eV = 14.53211
+Extra cycle  E= -1.17548241091718  delta_E= -1.08e-13  |g|= 8.17e-08  |ddm|= 6.32e-07
+converged SCF energy = -1.17548241091718
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:32 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371394151674 AA    0.000000000000   0.000000000000  -0.701833230929 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371394151674 AA    0.000000000000   0.000000000000   0.701833230929 Bohr   0.0
+
+nuclear repulsion = 0.712419956715349
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         2.13
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp_7gezxpn
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.947543874412765
+  HOMO = -0.459790012068672  LUMO = 0.07209388800784  gap/eV = 14.47330
+cycle= 1 E= -1.17521076310636  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428361957845872  LUMO = 0.102950686322379  gap/eV = 14.45775
+cycle= 2 E= -1.17547542095243  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0314
+  HOMO = -0.433956695928147  LUMO = 0.100087001744156  gap/eV = 14.53207
+cycle= 3 E= -1.17548241091684  delta_E= -6.99e-06  |g|= 8.99e-07  |ddm|= 0.00433
+  HOMO = -0.433957047701552  LUMO = 0.100087302982658  gap/eV = 14.53209
+cycle= 4 E= -1.17548241091707  delta_E= -2.32e-13  |g|= 5.1e-07  |ddm|= 4.15e-07
+  HOMO = -0.433957622745642  LUMO = 0.100087640658739  gap/eV = 14.53211
+Extra cycle  E= -1.17548241091718  delta_E= -1.08e-13  |g|= 8.17e-08  |ddm|= 6.32e-07
+converged SCF energy = -1.17548241091718
+#INFO: **** input file is /home/acc-2026-29933/applcompchem/hydrogen_isotope_thermo_pyscf.py ****
+#!/usr/bin/env python3
+"""B3LYP/6-31G(d) RRHO Gibbs energies for H2 isotopologues at 298.15 K, 1 atm."""
+
+from pathlib import Path
+from types import MethodType
+import json
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+from pyscf import dft, gto
+from pyscf.hessian import thermo
+
+TEMPERATURE = 298.15
+PRESSURE_PA = 101325.0
+ISOTOPOLOGUES = {
+    "H2": (np.array([1.00782503223, 1.00782503223]), 2),
+    "D2": (np.array([2.01410177812, 2.01410177812]), 2),
+    "HD": (np.array([1.00782503223, 2.01410177812]), 1),
+}
+
+
+def make_mf(bond_angstrom):
+    mol = gto.M(
+        atom=f"H 0 0 {-bond_angstrom / 2}; H 0 0 {bond_angstrom / 2}",
+        basis="6-31g(d)", unit="Angstrom", charge=0, spin=0, symmetry=False,
+        verbose=4,
+    )
+    mf = dft.RKS(mol)
+    mf.xc = "b3lyp"
+    mf.conv_tol = 1e-10
+    return mf
+
+
+def energy_at(bond_angstrom):
+    return make_mf(bond_angstrom).kernel()
+
+
+opt = minimize_scalar(energy_at, bounds=(0.55, 1.10), method="bounded", options={"xatol": 1e-7})
+if not opt.success:
+    raise RuntimeError(opt.message)
+
+mf = make_mf(opt.x)
+energy = mf.kernel()
+hessian = mf.Hessian().kernel()
+results = {
+    "method": "B3LYP/6-31G(d)",
+    "temperature_K": TEMPERATURE,
+    "pressure_Pa": PRESSURE_PA,
+    "optimized_HH_distance_angstrom": float(opt.x),
+    "electronic_energy_hartree": float(energy),
+    "isotopologues": {},
+}
+
+for label, (masses, symmetry_number) in ISOTOPOLOGUES.items():
+    vibrational = thermo.harmonic_analysis(mf.mol, hessian, mass=masses)
+    original_mass_list = mf.mol.atom_mass_list
+    original_symmetry_number = thermo.rotational_symmetry_number
+    mf.mol.atom_mass_list = MethodType(lambda self, isotope_avg=True: masses, mf.mol)
+    thermo.rotational_symmetry_number = lambda mol: symmetry_number
+    try:
+        thermal = thermo.thermo(mf, vibrational["freq_au"], TEMPERATURE, PRESSURE_PA)
+    finally:
+        mf.mol.atom_mass_list = original_mass_list
+        thermo.rotational_symmetry_number = original_symmetry_number
+    results["isotopologues"][label] = {
+        "masses_u": masses.tolist(),
+        "rotational_symmetry_number": symmetry_number,
+        "harmonic_frequency_cm-1": [float(x.real) for x in vibrational["freq_wavenumber"]],
+        "gibbs_free_energy_hartree": float(thermal["G_tot"][0]),
+        "enthalpy_hartree": float(thermal["H_tot"][0]),
+        "entropy_hartree_per_K": float(thermal["S_tot"][0]),
+    }
+
+Path("hydrogen_isotope_thermo_results.json").write_text(json.dumps(results, indent=2) + "\n")
+for label, values in results["isotopologues"].items():
+    print(f"{label:2s} G = {values['gibbs_free_energy_hartree']:.12f} Eh")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='node4', release='5.4.0-208-generic', version='#228-Ubuntu SMP Fri Feb 7 19:41:33 UTC 2025', machine='x86_64')  Threads 1
+Python 3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:21:40) [GCC 14.3.0]
+numpy 2.5.3  scipy 1.18.1  h5py 3.16.0
+Date: Wed Sep 23 16:30:32 2026
+PySCF version 2.14.0
+PySCF path  /appl/share/maestro/maestro/.venv/lib/python3.14/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 2
+[INPUT] num. electrons = 2
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = Angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 H      0.000000000000   0.000000000000  -0.371394173849 AA    0.000000000000   0.000000000000  -0.701833272835 Bohr   0.0
+[INPUT]  2 H      0.000000000000   0.000000000000   0.371394173849 AA    0.000000000000   0.000000000000   0.701833272835 Bohr   0.0
+
+nuclear repulsion = 0.71241991417793
+number of shells = 4
+number of NR pGTOs = 8
+number of NR cGTOs = 4
+basis = 6-31g(d)
+ecp = {}
+CPU time:         2.25
+
+
+******** <class 'pyscf.dft.rks.RKS'> ********
+method = RKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-10
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpzb87ze4h
+max_memory 4000 MB (current use 116 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x7f988288d7a0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x7f988288d640>
+small_rho_cutoff = 0
+Set gradient conv threshold to 1e-05
+Initial guess from minao.
+tot grids = 19616
+init E= -0.94754387374143
+  HOMO = -0.459789994954155  LUMO = 0.0720938772223567  gap/eV = 14.47330
+cycle= 1 E= -1.17521076324181  delta_E= -0.228  |g|= 0.0253  |ddm|= 0.629
+  HOMO = -0.428361950545644  LUMO = 0.102950672815637  gap/eV = 14.45775
+cycle= 2 E= -1.17547542095685  delta_E= -0.000265  |g|= 0.00406  |ddm|= 0.0314
+  HOMO = -0.433956687039027  LUMO = 0.100086988882176  gap/eV = 14.53207
+cycle= 3 E= -1.17548241091684  delta_E= -6.99e-06  |g|= 8.99e-07  |ddm|= 0.00433
+  HOMO = -0.433957038812275  LUMO = 0.10008729012048  gap/eV = 14.53209
+cycle= 4 E= -1.17548241091707  delta_E= -2.32e-13  |g|= 5.1e-07  |ddm|= 4.15e-07
+  HOMO = -0.433957613856108  LUMO = 0.100087627796314  gap/eV = 14.53211
+Extra cycle  E= -1.17548241091718  delta_E= -1.08e-13  |g|= 8.17e-08  |ddm|= 6.32e-07
+converged SCF energy = -1.17548241091718
+H2 G = -1.176824729239 Eh
+D2 G = -1.181427695023 Eh
+HD G = -1.179682137444 Eh

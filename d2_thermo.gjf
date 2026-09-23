@@ -1,0 +1,10 @@
+%nprocshared=1
+%mem=2GB
+#p B3LYP/6-31G(d) Opt Freq
+
+D2 Gibbs free energy, 298.15 K and 1 atm
+
+0 1
+H(Iso=2)  0.000000  0.000000  -0.370700
+H(Iso=2)  0.000000  0.000000   0.370700
+

@@ -1,0 +1,2 @@
+CUDA driver version is insufficient for CUDA runtime version
+/var/spool/slurmd/job14064/slurm_script: line 15: 3812195 Aborted                 (core dumped) python hydrogen_isotope_thermo_pyscf.py
