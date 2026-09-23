@@ -13,6 +13,23 @@ At 298.15 K and 1 atm, the B3LYP/6-31G(d) RRHO Gibbs free energies are:
 The optimized H--H distance is 0.74278835 Angstrom. The electronic energy is
 -1.175482410917 Eh.
 
+## Isotope-exchange equilibrium constant
+
+For the isotope-exchange reaction
+
+`H2 + D2 <=> 2 HD`,
+
+the calculated standard Gibbs free energy is
+
+`Delta G° = 2G(HD) - G(H2) - G(D2) = -0.001111850626 Eh = -2.91916 kJ mol^-1`.
+
+Using `K = exp(-Delta G° / RT)` at 298.15 K gives
+
+`K = 3.2465`.
+
+This value uses the same ideal-gas RRHO standard-state convention as the
+underlying molecular Gibbs free energies.
+
 ## Method
 
 The successful calculation used PySCF 2.14.0 with B3LYP/6-31G(d), optimized
