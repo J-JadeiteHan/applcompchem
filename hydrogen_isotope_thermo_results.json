@@ -1,0 +1,48 @@
+{
+  "method": "B3LYP/6-31G(d)",
+  "temperature_K": 298.15,
+  "pressure_Pa": 101325.0,
+  "optimized_HH_distance_angstrom": 0.7427883476988764,
+  "electronic_energy_hartree": -1.1754824109171786,
+  "isotopologues": {
+    "H2": {
+      "masses_u": [
+        1.00782503223,
+        1.00782503223
+      ],
+      "rotational_symmetry_number": 2,
+      "harmonic_frequency_cm-1": [
+        4453.121146703955
+      ],
+      "gibbs_free_energy_hartree": -1.1768247292389746,
+      "enthalpy_hartree": -1.1620328085167524,
+      "entropy_hartree_per_K": 4.961234520282529e-05
+    },
+    "D2": {
+      "masses_u": [
+        2.01410177812,
+        2.01410177812
+      ],
+      "rotational_symmetry_number": 2,
+      "harmonic_frequency_cm-1": [
+        3150.042217610348
+      ],
+      "gibbs_free_energy_hartree": -1.1814276950227383,
+      "enthalpy_hartree": -1.165001437169835,
+      "entropy_hartree_per_K": 5.509393879893788e-05
+    },
+    "HD": {
+      "masses_u": [
+        1.00782503223,
+        2.01410177812
+      ],
+      "rotational_symmetry_number": 1,
+      "harmonic_frequency_cm-1": [
+        3857.0101054294973
+      ],
+      "gibbs_free_energy_hartree": -1.179682137444028,
+      "enthalpy_hartree": -1.1633908492586862,
+      "entropy_hartree_per_K": 5.464124831575379e-05
+    }
+  }
+}
